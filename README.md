@@ -31,6 +31,14 @@ python3 backtest.py
 
 Aktuální výsledky jsou v `results/working/`: souhrn JSON, jednotlivé obchody a equity CSV. `settings.json` drží výchozí NY 10:00–13:30, TP 1,7R. Volba `--profile historical_candidate` je zachována pro kompatibilitu a odpovídá téže vybrané variantě. `results/previous_working/` archivuje předchozí 1,5R variantu. `design.json` a `selection.json` dokumentují původní výběr před rozhodnutím uživatele; zahrnují i již vyřazený London.
 
+## Proměnné prostředí
+
+Šablona je v `.env.example`. Exportované proměnné prostředí mají přednost před `settings.json`; samotný soubor `.env` se automaticky nenačítá. Na hostingu je nastav v jeho Variables.
+
+Aktivní backtest načítá `NEW_YORK_START`, `NEW_YORK_END`, `NEW_YORK_TIMEZONE`, `TP_RR`, `SIZING_RISK_PERCENT`, `INITIAL_EQUITY_USD` a `DATA_DIR`. Hodnota risku `1` znamená 1 %, tedy interně 0,01. `NEW_YORK_END` je současně konec vstupů i povinný čas uzavření pozice. Časy se interpretují v `America/New_York`, včetně DST. `DATA_DIR="/data"` vyžaduje, aby v této složce byly historické JSON soubory; bez nastavení se používá projektová složka `data`.
+
+`TWELVE_DATA_API_KEY` a `DISCORD_WEBHOOK_URL` jsou v šabloně rezervovány pro budoucí živý scanner. Současný offline backtest je nečte, nestahuje živá data a neposílá Discord zprávy. Pouhé vyplnění těchto hodnot živou službu nezapne. Skutečná tajemství patří do hostingu nebo lokálního ignorovaného prostředí, nikoli do Git repozitáře.
+
 ## Ověření kódu
 
 ```sh
