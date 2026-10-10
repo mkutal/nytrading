@@ -50,6 +50,16 @@ class ScannerTests(unittest.TestCase):
             self.assertIsNone(latest_signal(self.when+timedelta(seconds=91),self.bars,self.runtime.window))
             mocked.assert_not_called()
 
+    def test_notification_latency_cannot_turn_into_a_stale_entry(self):
+        discord = unittest.mock.Mock()
+        with self.prototypes() as mocked:
+            result = cycle(self.when, self.bars, self.runtime, self.state, discord,
+                refresh_now=lambda: self.when + timedelta(seconds=91))
+        self.assertIsNone(result)
+        mocked.assert_not_called()
+        discord.send.assert_not_called()
+        self.assertIsNone(self.state.data["position"])
+
     def test_unclosed_candles_are_removed(self):
         self.bars["15min"].append(Bar(self.when,1,1,1,1))
         self.bars["1h"].append(Bar(self.when,1,1,1,1))
@@ -71,7 +81,7 @@ class ScannerTests(unittest.TestCase):
         discord.send.return_value="123"
         with self.prototypes():
             content=cycle(self.when,self.bars,self.runtime,self.state,discord)
-            self.assertIn("1:1.7",content)
+            self.assertIn("Take profit · 100% · 1.7R",content)
             cycle(self.when+timedelta(seconds=20),self.bars,self.runtime,self.state,discord)
         discord.send.assert_called_once()
         self.state.release()

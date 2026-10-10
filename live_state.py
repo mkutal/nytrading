@@ -33,9 +33,14 @@ class State:
                         or not isinstance(self.data["seen"],dict)
                         or not isinstance(self.data["trades"],list)):
                     raise StateError("Paper state/config mismatch; preserve and inspect the state")
+                # Add notification state without changing the account or open trade.
+                for field in ("sessions", "notifications"):
+                    if not isinstance(self.data.setdefault(field, {}), dict):
+                        raise StateError("Invalid paper notification state")
             else:
                 self.data = dict(version=1, initial=initial, balance=initial, day=None,
-                    day_balance=initial, position=None, seen={}, halted=None, trades=[])
+                    day_balance=initial, position=None, seen={}, halted=None, trades=[],
+                    sessions={}, notifications={})
                 self.save()
         except Exception:
             self.release()
@@ -74,9 +79,11 @@ class State:
         c = Config(**p["costs"])
         gross = p["side"] * (price - p["entry"]) * p["units"]
         d["balance"] += gross - c.commission * p["lots"] / 2
-        d["trades"].append(dict(signal_id=p["id"], exit_time=when.isoformat(),
-            reason=reason, exit=price, pnl=gross-c.commission*p["lots"],
-            balance=d["balance"]))
+        net = gross-c.commission*p["lots"]
+        d["trades"].append(dict(signal_id=p["id"], entry_time=p["time"],
+            side=p["side"], entry=p["entry"], sl=p["sl"], tp=p["tp"],
+            lots=p["lots"], risk_usd=p["risk_usd"], exit_time=when.isoformat(),
+            reason=reason, exit=price, pnl=net, r=net/p["risk_usd"], balance=d["balance"]))
         d["position"] = None
         self._mark(d["balance"])
 
@@ -135,6 +142,25 @@ class State:
 
     def delivery_status(self, signal_id, status, message_id=None):
         record = self.data["seen"][signal_id]
+        record["status"] = status
+        if message_id is not None:
+            record["message_id"] = message_id
+        self.save()
+
+    def track_session(self, key, start, cutoff, deadline):
+        if key not in self.data["sessions"]:
+            self.data["sessions"][key] = dict(start=start.isoformat(),
+                cutoff=cutoff.isoformat(), deadline=deadline.isoformat())
+            self.save()
+
+    def queue_notification(self, key, kind, when, content):
+        if key not in self.data["notifications"]:
+            self.data["notifications"][key] = dict(kind=kind, time=when.isoformat(),
+                content=content, status="pending")
+            self.save()
+
+    def notification_status(self, key, status, message_id=None):
+        record = self.data["notifications"][key]
         record["status"] = status
         if message_id is not None:
             record["message_id"] = message_id

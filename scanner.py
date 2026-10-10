@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import signal
+import sys
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,7 @@ from engine import UTC, plan_entry
 from live_clients import TwelveData, Discord, FeedError, DeliveryError, webhook_url
 from live_state import State, StateError
 from runtime_config import load_runtime
+from notifications import message, on_clock, flush
 
 LOG = logging.getLogger("nytrading")
 MAX_SIGNAL_AGE = 90
@@ -69,25 +71,17 @@ class Feed:
         return self.cache
 
 
-def message(when, planned, costs, balance, deadline, window):
-    ny = when.astimezone(ZoneInfo("America/New_York"))
-    prague = when.astimezone(ZoneInfo("Europe/Prague"))
-    side = "BUY" if planned["side"] == 1 else "SELL"
-    return (f"**NY Trading | XAUUSD {side}**\n"
-        f"Entry (model M5 open): **{planned['entry']:.5f}**\n"
-        f"SL: **{planned['sl']:.5f}** | TP: **{planned['tp']:.5f}** | RR: **1:{costs.target:g}**\n"
-        f"Risk: {costs.risk:.1%} modelové equity ${balance:,.2f}; plánované maximum ${planned['risk_usd']:,.2f}\n"
-        f"Referenční velikost: {planned['lots']:.2f} lotu (100 oz/lot)\n"
-        f"Session: NY {window.times(when)[0].astimezone(ZoneInfo(window.zone)):%H:%M}–{deadline.astimezone(ZoneInfo(window.zone)):%H:%M} | {ny:%Y-%m-%d %H:%M} NY | {prague:%H:%M} ČR\n"
-        f"Timestamp UTC: {when.isoformat()} | Zavřít nejpozději {deadline.astimezone(ZoneInfo('Europe/Prague')):%H:%M} ČR\n"
-        "Paper signál; Entry není potvrzené plnění a skutečný risk závisí na účtu a brokerovi.")
-
-
-def cycle(now, bars, runtime, state, discord=None, dry_run=False):
+def cycle(now, bars, runtime, state, discord=None, dry_run=False, refresh_now=None):
+    on_clock(now, runtime.window, state)
+    flush(state, now, discord, dry_run)
     if state.data["position"] or active(now,runtime.window):
         if not any(b.time == floor_time(now,5) for b in bars.get("5min",[])):
             raise FeedError("M5 feed is delayed; paper exits/entries wait for fresh data")
     state.advance(bars.get("5min", []), now)
+    flush(state, now, discord, dry_run)
+    if refresh_now is not None:
+        # Result delivery can take time; recheck freshness before an actionable entry.
+        now = refresh_now()
     if state.data["position"] or state.data["halted"] or not active(now,runtime.window):
         return None
     result = latest_signal(now,bars,runtime.window)
@@ -122,13 +116,23 @@ def cycle(now, bars, runtime, state, discord=None, dry_run=False):
     return content
 
 
+def log_handlers():
+    """Keep INFO on stdout and actual warnings/errors on stderr."""
+    stdout = logging.StreamHandler(sys.stdout)
+    stdout.addFilter(lambda record: record.levelno < logging.WARNING)
+    stderr = logging.StreamHandler(sys.stderr)
+    stderr.setLevel(logging.WARNING)
+    return [stdout, stderr]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run",action="store_true",help="Fetch data but never send Discord; separate state")
     parser.add_argument("--once",action="store_true",help="One poll and exit")
     parser.add_argument("--check-config",action="store_true",help="Validate environment without HTTP calls")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s",
+                        handlers=log_handlers())
     configuration_step = "NY times, TP and risk"
     try:
         runtime = load_runtime(Path(__file__).resolve().parent)
@@ -172,6 +176,8 @@ def main():
     try:
         while not stop.is_set():
             now = datetime.now(UTC)
+            on_clock(now, runtime.window, state)
+            flush(state, now, discord, dry_run)
             entered = active(now,runtime.window)
             status = "paper_halted" if state.data["halted"] else "active" if entered else "waiting_for_NY"
             if status != last_status:
@@ -182,7 +188,8 @@ def main():
                 try:
                     fresh_signal = entered and (now-floor_time(now,15)).total_seconds()<=MAX_SIGNAL_AGE
                     bars = feed.snapshot(now,indicators=fresh_signal)
-                    cycle(datetime.now(UTC),bars,runtime,state,discord,dry_run)
+                    cycle(datetime.now(UTC),bars,runtime,state,discord,dry_run,
+                          refresh_now=lambda: datetime.now(UTC))
                 except FeedError as exc:
                     LOG.warning("FEED_UNAVAILABLE %s",exc)
                     if stop.wait(60):
