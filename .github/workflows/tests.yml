@@ -20,3 +20,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Financial invariants and causality
         run: python -m unittest discover -s tests -v
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Railway worker image
+        run: docker build -t nytrading-ci .
+      - name: Validate worker startup configuration without network or messages
+        run: docker run --rm -e TWELVE_DATA_API_KEY=ci-placeholder -e SCANNER_DRY_RUN=true -e DATA_DIR=/tmp nytrading-ci python scanner.py --check-config

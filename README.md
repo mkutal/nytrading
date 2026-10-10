@@ -1,6 +1,6 @@
 # NY Trading
 
-Samostatný výzkumný projekt pro XAUUSD, pouze New York. Repozitář: https://github.com/mkutal/nytrading. Software je offline Python backtest; služba pro živé signály zatím není vytvořena. Původní XAUUSD Gold Lab není upraven. London je pro tuto strategii vyřazen: všechny dosud porovnané londýnské varianty měly za celé testované období záporný výsledek. Nejlepší z nich samostatně ztratila přibližně $3 194; v kombinovaném účtu přispěla ztrátou $3 313 kvůli odlišné průběžné velikosti účtu.
+Samostatný výzkumný projekt pro XAUUSD, pouze New York. Repozitář: https://github.com/mkutal/nytrading. Software obsahuje offline backtest a worker `scanner.py` pro živá Twelve Data a paper signály do Discordu. Scanner neodesílá příkazy brokerovi. Původní XAUUSD Gold Lab není upraven. London je pro tuto strategii vyřazen: všechny dosud porovnané londýnské varianty měly za celé testované období záporný výsledek. Nejlepší z nich samostatně ztratila přibližně $3 194; v kombinovaném účtu přispěla ztrátou $3 313 kvůli odlišné průběžné velikosti účtu.
 
 ## Aktuální nastavení a výsledky
 
@@ -37,7 +37,38 @@ Aktuální výsledky jsou v `results/working/`: souhrn JSON, jednotlivé obchody
 
 Aktivní backtest načítá `NEW_YORK_START`, `NEW_YORK_END`, `NEW_YORK_TIMEZONE`, `TP_RR`, `SIZING_RISK_PERCENT`, `INITIAL_EQUITY_USD` a `DATA_DIR`. Hodnota risku `1` znamená 1 %, tedy interně 0,01. `NEW_YORK_END` je současně konec vstupů i povinný čas uzavření pozice. Časy se interpretují v `America/New_York`, včetně DST. `DATA_DIR="/data"` vyžaduje, aby v této složce byly historické JSON soubory; bez nastavení se používá projektová složka `data`.
 
-`TWELVE_DATA_API_KEY` a `DISCORD_WEBHOOK_URL` jsou v šabloně rezervovány pro budoucí živý scanner. Současný offline backtest je nečte, nestahuje živá data a neposílá Discord zprávy. Pouhé vyplnění těchto hodnot živou službu nezapne. Skutečná tajemství patří do hostingu nebo lokálního ignorovaného prostředí, nikoli do Git repozitáře.
+`scanner.py` používá `TWELVE_DATA_API_KEY` a `DISCORD_WEBHOOK_URL`. Offline `backtest.py` tyto hodnoty stále nečte a nic neodesílá. `SCANNER_DRY_RUN=true` zapne sledování a logování bez Discord zpráv, s odděleným virtuálním účtem. Skutečná tajemství patří do Railway Variables nebo lokálního ignorovaného prostředí, nikoli do Git repozitáře.
+
+## Živý paper scanner a Railway
+
+Scanner načítá UTC OHLC pro XAU/USD. M5 aktualizuje při nové pětiminutové svíčce, M15/H1 při jejich uzavření. Indikátory mají warmup 1000 M15 a 500 H1 barů; po odfiltrování víkendů používá stejnou funkci band reversion jako backtest. Do signálu vstupují pouze uzavřené M15/H1. Entry používá open právě začínající M5 plus modelovaný spread a skluz, takže jde o indikativní cenu, nikoli potvrzené plnění. Po startu se neposílají staré příležitosti: maximální stáří signálu je 90 sekund a vstup musí ležet v NY okně.
+
+Discord zpráva obsahuje BUY/SELL, Entry, SL, TP, RR, risk, referenční loty, NY/český/UTC čas a povinný konec držení. Neobsahuje API klíč ani webhook. Neposílají se startup ani testovací zprávy. Uvnitř modelu je povolena pouze jedna otevřená pozice; její TP/SL/deadline se sleduje z dokončených M5 svíček, konzervativně SL před TP. Svíčka vstupu může obsahovat pohyb před doručením alertu; pro paper účet se celý rozsah zpracuje konzervativně.
+
+Modelový účet začíná na `INITIAL_EQUITY_USD`, aktualizuje se podle virtuálních výsledků a přetrvává přes restart. Není synchronizován se skutečnou equity FTMO/MT5. Limity 5 % denní ztráty s resetem Europe/Prague a statických 10 % celkové ztráty kontroluje na modelu spolu s interní 4% denní rezervou. [FTMO 2-Step pravidla](https://ftmo.com/en/trading-objectives/). Chybějící M5 při otevřené modelové pozici nebo porušení limitu účet zastaví; neodhadne výsledek ani nezačne automaticky znovu. Zprávy nejsou důkazem souladu skutečného účtu se všemi FTMO pravidly a neobsahují makro news filtr.
+
+Rezervace signálu i modelové pozice se uloží před Discord POST. Potvrzení používá `wait=true`. Při nejasném výsledku HTTP požadavku se zpráva slepě neopakuje; může chybět doručení a je potřeba zkontrolovat Discord i stav. Restart chrání před opakováním stejných signálů. Stav je v `/data/ny-trading.json`, u dry-run odděleně; soubor nemaž při běžném redeployi. Souborový zámek brání dvěma workerům používat stejný stav.
+
+Railway nasazení:
+
+1. Použij samostatnou službu NY Trading, zdroj `mkutal/nytrading`, větev `main`.
+2. V projektu vytvoř **Volume**, přiřaď jej této službě a nastav mount path **`/data`**. Samotná `DATA_DIR` úložiště nevytváří. [Railway Volumes](https://docs.railway.com/volumes).
+3. Ponech nastavené Variables podle `.env.example`; webhook/API klíč vyplň jen v Railway. Pro scanner není nutné nahrávat historické JSON soubory do Volume.
+4. Repo obsahuje Dockerfile a `railway.json`: start **`python -u scanner.py`**, jedna replika, Serverless vypnutý a požadovaný mount `/data`. Worker běží trvale, nemá veřejný HTTP server a nepotřebuje doménu/HTTP healthcheck. [Railway konfigurace](https://docs.railway.com/config-as-code/reference).
+5. Použij auto-deploy nového commitu nebo v Command Palette **Deploy Latest Commit**. Běžný Redeploy může znovu použít předchozí obraz. [Deployment Actions](https://docs.railway.com/deployments/deployment-actions).
+6. V logu očekávej `NY_TRADING_READY`, následně `STATUS waiting_for_NY` mimo okno nebo `STATUS active` v okně. Tyto zprávy potvrzují start workeru; skutečná oprávnění API a Discord doručení se potvrdí až požadavky. `CONFIGURATION_ERROR` říká, co chybí. `FEED_UNAVAILABLE` znamená chybu/opoždění Twelve Data, `SIGNAL_SENT` potvrzené odeslání.
+
+Na sdíleném Twelve Data klíči obě služby čerpají stejný kreditní limit. Worker mimo NY nevolá API, pokud neřeší neuzavřenou modelovou pozici; H1/M15 používá cache. [Twelve Data kredity](https://support.twelvedata.com/en/articles/5615854-credits). Delay, seed ATR z jiného začátku historie, provider revize a skutečné bid/ask/fill ceny mohou vytvořit rozdíl mezi živým paper výsledkem a starým backtestem.
+
+Lokálně, s exportovanými variables:
+
+```sh
+python3 scanner.py --check-config
+python3 scanner.py --dry-run --once
+python3 scanner.py
+```
+
+`--check-config` nevolá API ani Discord. `--dry-run` volá Twelve Data, ale neodesílá zprávy. Dosavadní integrační testy používají HTTP fixtures; skutečná Railway služba a její credentials nejsou z místního prostředí ověřeny.
 
 ## Ověření kódu
 
@@ -45,7 +76,7 @@ Aktivní backtest načítá `NEW_YORK_START`, `NEW_YORK_END`, `NEW_YORK_TIMEZONE
 python3 -m unittest discover -s tests -v
 ```
 
-Testy kontrolují exekuci, náklady, risk, FTMO ztrátové limity, souběh pozic a práci s budoucími daty. Jeden test kauzality používá skutečná historická data; při jejich absenci se výslovně přeskočí. GitHub Actions spouští sadu při pushi a pull requestu. `reports/backtest-summary.json` obsahuje souhrn vybrané NY varianty; celé obchody a equity se generují lokálně.
+Testy kontrolují exekuci, náklady, risk, FTMO ztrátové limity, souběh pozic, práci s budoucími daty, scanner freshness, restart/deduplikaci a selhání doručení. Testy na skutečných historických datech se při jejich absenci výslovně přeskočí. Replay modelového účtu reprodukuje vybraný backtest. GitHub Actions spouští sadu při pushi/pull requestu a sestaví Docker obraz s kontrolou konfigurace bez skutečných credentials. `reports/backtest-summary.json` obsahuje souhrn vybrané NY varianty; celé obchody a equity se generují lokálně.
 
 ## Omezení a provozní stav
 
@@ -53,4 +84,4 @@ Datové soubory jsou samostatné kopie historických Twelve Data OHLC s UTC čas
 
 Vzorek 20–24 obchodů je malý a zkoušeli jsme více strategií, časů a cílů. Pozdější časový úsek pochází z již používaného datasetu, takže není nezávislým potvrzením. Před nasazením je potřeba další test na dosud nepoužitých datech a průběžné paper sledování se skutečnými náklady. Výsledky nelze považovat za garantovanou úspěšnost.
 
-Projekt je pouze offline výzkum. London, Discord i obchodní exekuce jsou vypnuté. Žádný webhook ani broker není připojen. Původní tři auditované zdrojové soubory Gold Lab mají při dokončení změny stejné kontrolní součty jako před auditem.
+Projekt slouží pro historický výzkum a paper signály. London a obchodní exekuce jsou vypnuté. Scanner odešle Discord signál, pokud je nasazen s platným webhookem a vznikne čerstvý vstup. Původní tři auditované zdrojové soubory Gold Lab mají stejné kontrolní součty jako před auditem.

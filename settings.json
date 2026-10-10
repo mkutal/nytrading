@@ -26,5 +26,12 @@
   "project_id": "ny-trading",
   "scope": "Standalone NY-only research; original Gold Lab untouched",
   "original_research_folder": "../ema-pullback-lab",
-  "note": "Default NY-only research configuration chosen by the user. Historical profitability is not independent validation. Entries stop at 13:30 and positions are closed at 13:30 New York local time."
+  "note": "Default NY-only research configuration chosen by the user. Historical profitability is not independent validation. Entries stop at 13:30 and positions are closed at 13:30 New York local time.",
+  "paper_scanner": {
+    "entrypoint": "scanner.py",
+    "discord_notifications": true,
+    "broker_execution": false,
+    "account": "persistent virtual account; not FTMO/MT5 equity",
+    "state_required": "Railway Volume /data"
+  }
 }

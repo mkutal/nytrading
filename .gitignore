@@ -14,6 +14,8 @@ venv/
 
 # Provider OHLC stays local; manifests document provenance
 data/*.json
+data/*.lock
+data/*.tmp
 !data/*manifest.json
 
 # Generated simulation output and archives

@@ -75,8 +75,9 @@ class Window:
         ZoneInfo(self.zone)
 
 
-def load(path, minutes):
-    raw=json.loads(Path(path).read_text())
+def parse_bars(raw, minutes):
+    """Validate UTC bar-open timestamps and OHLC from either disk or live feed."""
+    if not isinstance(raw,list): raise ValueError('Expected OHLC list')
     rows=[]
     for r in raw:
         t=datetime.fromisoformat(r['datetime'].replace('Z','+00:00'))
@@ -90,6 +91,13 @@ def load(path, minutes):
         rows.append(b)
     rows.sort(key=lambda b:b.time)
     if not rows or len({b.time for b in rows})!=len(rows): raise ValueError('Empty/duplicate timestamps')
+    gaps=Counter(int((b.time-a.time).total_seconds()/60) for a,b in zip(rows,rows[1:]) if b.time-a.time!=timedelta(minutes=minutes))
+    return rows
+
+
+def load(path, minutes):
+    raw=json.loads(Path(path).read_text())
+    rows=parse_bars(raw,minutes)
     gaps=Counter(int((b.time-a.time).total_seconds()/60) for a,b in zip(rows,rows[1:]) if b.time-a.time!=timedelta(minutes=minutes))
     return rows,dict(count=len(rows),first=rows[0].time.isoformat(),last_open=rows[-1].time.isoformat(),
         sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest(),gap_minutes=dict(gaps),volume_present=sum('volume' in r for r in raw))
@@ -146,6 +154,30 @@ def size(balance,entry,distance,c):
     per_lot=c.contract*(distance+c.slippage)+c.commission
     lots=math.floor(min(balance*c.risk/per_lot,c.max_lot,balance*c.leverage/(entry*c.contract))/c.lot_step)*c.lot_step
     return lots if lots>=c.min_lot else 0
+
+
+def plan_entry(signal, reference_open, balance, day_balance, c, target=None):
+    """Shared entry, structural SL, room and risk checks for backtest and scanner."""
+    target=c.target if target is None else target
+    if isinstance(signal,Signal): s,a=signal.side,signal.atr
+    else: s,a=signal
+    if s not in (-1,1) or not math.isfinite(a) or a<=0:
+        raise ValueError('Invalid signal')
+    entry=reference_open+s*(c.spread/2+c.slippage)
+    distance=c.atr_multiple*a
+    if isinstance(signal,Signal) and signal.stop is not None:
+        distance=s*(entry-signal.stop)
+        if not signal.min_atr_risk*a<=distance<=signal.max_atr_risk*a:
+            return None,'invalid_structure_stop'
+        if signal.room_price is not None and s*(signal.room_price-entry)<max(target,c.minimum_room_r)*distance:
+            return None,'insufficient_2R_room'
+    lots=size(balance,entry,distance,c)
+    risk=lots*(c.contract*(distance+c.slippage)+c.commission)
+    if not lots: return None,'minimum_lot'
+    if balance-risk<=max(day_balance-c.initial*c.daily_guard,c.initial*.90):
+        return None,'risk_headroom'
+    return dict(side=s,entry=entry,sl=entry-s*distance,tp=entry+s*distance*target,
+                lots=lots,units=lots*c.contract,risk_usd=risk),None
 
 
 def exit_bar(p,b,c):
@@ -229,28 +261,12 @@ def run(m5,sigs,c,session,start,end,*,windows=None,record_equity=True,target_by_
             break
         if position is None and active and entry_allowed and t in sigs and not locked:
             target=target_by_window.get(window_name,c.target) if target_by_window else c.target
-            signal=sigs[t]
-            if isinstance(signal,Signal):
-                s,a=signal.side,signal.atr
-            else:
-                s,a=signal
-            if s not in (-1,1) or not math.isfinite(a) or a<=0:
-                raise ValueError('Invalid signal')
-            entry=b.open+s*(c.spread/2+c.slippage)
-            distance=c.atr_multiple*a
-            if isinstance(signal,Signal) and signal.stop is not None:
-                distance=s*(entry-signal.stop)
-                if not signal.min_atr_risk*a<=distance<=signal.max_atr_risk*a:
-                    rejected['invalid_structure_stop']+=1; continue
-                if signal.room_price is not None and s*(signal.room_price-entry)<max(target,c.minimum_room_r)*distance:
-                    rejected['insufficient_2R_room']+=1; continue
-            lots=size(balance,entry,distance,c); risk=lots*(c.contract*(distance+c.slippage)+c.commission)
-            if not lots: rejected['minimum_lot']+=1; continue
-            if balance-risk<=max(day_balance-c.initial*c.daily_guard,c.initial*.90):
-                rejected['risk_headroom']+=1; continue
-            position=dict(time=t,side=s,entry=entry,sl=entry-s*distance,tp=entry+s*distance*target,
-                          lots=lots,units=lots*c.contract,risk_usd=risk,deadline=right,window=window_name)
-            balance-=c.commission*lots/2
+            planned,rejection=plan_entry(sigs[t],b.open,balance,day_balance,c,target)
+            if rejection:
+                rejected[rejection]+=1; continue
+            position=dict(planned,time=t,deadline=right,window=window_name)
+            balance-=c.commission*position['lots']/2
+            s=position['side'];entry=position['entry']
             mark(t,balance-s*(entry-(b.open-s*c.spread/2))*position['units'],'entry')
         if position:
             price,reason,adverse=exit_bar(position,b,c)
