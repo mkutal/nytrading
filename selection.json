@@ -1,0 +1,76 @@
+{
+  "selected": {
+    "session": "ny",
+    "profile": "full_5h",
+    "target": 1.5,
+    "score": 4.253741448112693,
+    "base_r": 4.253741448112693,
+    "stress_r": 4.488802332237283
+  },
+  "development_ranking": [
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 1.5,
+      "score": 4.253741448112693,
+      "base_r": 4.253741448112693,
+      "stress_r": 4.488802332237283
+    },
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 1.6,
+      "score": 3.508822504076933,
+      "base_r": 3.508822504076933,
+      "stress_r": 4.744420507869514
+    },
+    {
+      "session": "ny",
+      "profile": "pre30_full",
+      "target": 1.5,
+      "score": 2.2537414481126623,
+      "base_r": 2.2537414481126623,
+      "stress_r": 2.4888023322373094
+    },
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 1.7,
+      "score": 1.9481523487330819,
+      "base_r": 3.9990472999551634,
+      "stress_r": 1.9481523487330819
+    },
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 1.8,
+      "score": 1.7322782570758655,
+      "base_r": 1.7322782570758655,
+      "stress_r": 2.3335757805640616
+    },
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 2.0,
+      "score": 1.649104138662965,
+      "base_r": 1.649104138662965,
+      "stress_r": 3.104422644226109
+    },
+    {
+      "session": "ny",
+      "profile": "pre30_full",
+      "target": 1.6,
+      "score": 1.5088225040769023,
+      "base_r": 1.5088225040769023,
+      "stress_r": 2.7444205078695405
+    },
+    {
+      "session": "ny",
+      "profile": "full_5h",
+      "target": 1.9,
+      "score": 1.3543397299975641,
+      "base_r": 1.3543397299975641,
+      "stress_r": 2.718999212395248
+    }
+  ]
+}

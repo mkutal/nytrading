@@ -1,0 +1,117 @@
+{
+  "strategy": "band_reversion unchanged from discover.py",
+  "targets": [
+    1.5,
+    1.6,
+    1.7,
+    1.8,
+    1.9,
+    2.0
+  ],
+  "profiles": {
+    "full_5h": [
+      0,
+      300,
+      300
+    ],
+    "first_90": [
+      0,
+      90,
+      300
+    ],
+    "first_180": [
+      0,
+      180,
+      300
+    ],
+    "pre30_first90": [
+      -30,
+      90,
+      300
+    ],
+    "pre30_first180": [
+      -30,
+      180,
+      300
+    ],
+    "pre30_full": [
+      -30,
+      300,
+      300
+    ],
+    "late_only": [
+      90,
+      300,
+      300
+    ],
+    "first90_close90": [
+      0,
+      90,
+      90
+    ],
+    "pre30_first90_close90": [
+      -30,
+      90,
+      90
+    ],
+    "goldlab_timing": null
+  },
+  "selection": "Development-only net R per planned risk; require >=12 trades, positive mean R and no breach under both cost scenarios. One target/window jointly chosen before reading later-period ranking. All history has been examined before, so later period is only a consistency check.",
+  "room_gate": "At least 2 price R to prior mean for ALL targets; target change does not loosen the entry filter.",
+  "deadline": "Most profiles hold to open+300min even after entry cutoff. Separate close90 and goldlab_timing profiles test holding deadline.",
+  "periods": {
+    "full": [
+      "2026-04-01",
+      "2026-10-03"
+    ],
+    "development": [
+      "2026-04-01",
+      "2026-08-01"
+    ],
+    "later": [
+      "2026-08-01",
+      "2026-10-03"
+    ]
+  },
+  "timezone": "London benchmark08:00 Europe/London; NY benchmark08:30 America/New_York. NYSE stock open09:30 is not the benchmark. Exact local times, DST aware.",
+  "costs": {
+    "base": {
+      "initial": 100000,
+      "risk": 0.01,
+      "atr_multiple": 1.5,
+      "target": 2,
+      "minimum_room_r": 2,
+      "spread": 0.3,
+      "slippage": 0.05,
+      "commission": 6,
+      "contract": 100,
+      "lot_step": 0.01,
+      "min_lot": 0.01,
+      "max_lot": 50,
+      "daily_guard": 0.04,
+      "leverage": 30
+    },
+    "stress": {
+      "initial": 100000,
+      "risk": 0.01,
+      "atr_multiple": 1.5,
+      "target": 2,
+      "minimum_room_r": 2,
+      "spread": 0.6,
+      "slippage": 0.15,
+      "commission": 6,
+      "contract": 100,
+      "lot_step": 0.01,
+      "min_lot": 0.01,
+      "max_lot": 50,
+      "daily_guard": 0.04,
+      "leverage": 30
+    }
+  },
+  "old_timing": "Locally verified: London08:00\u201311:00, earliest ORB entry08:45; NY08:30\u201311:30, earliest09:15, last eligible signal10:00 inclusive. This studies only those timing boundaries with the NEW strategy, not old ORB logic.",
+  "source_hashes": {
+    "engine.py": "12312595f9165ecdc96178feb53e05cab2d45a0a07f07d36bd3a10709b91fdfb",
+    "discover.py": "0e94891299d2993b7d85e528839963a3cc1a1a33817dd47e5d2ea02bb7f026eb",
+    "compare_targets_windows.py": "9944e56c2142546d2fc66ff642e931c4634ea814de86d1163f26a1ec86541309"
+  }
+}

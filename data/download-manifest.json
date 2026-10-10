@@ -1,0 +1,28 @@
+{
+  "start": "2026-04-01T00:00:00+00:00",
+  "end_exclusive": "2026-10-03T00:00:00+00:00",
+  "warmup": "2026-03-01T00:00:00+00:00",
+  "variants": [
+    "split",
+    "full_1.5R",
+    "full_2R"
+  ],
+  "costs_r": [
+    0,
+    0.05,
+    0.1
+  ],
+  "scanner_version": "5.2-ftmo-sizing",
+  "requests": 16,
+  "datasets": {
+    "15min": {
+      "count": 25000,
+      "sha256": "14961c9a34353b00ae82c8b182054b290d8c2259c1f5d4e86669fb0a314ca3f1"
+    },
+    "5min": {
+      "count": 55000,
+      "sha256": "3718d6c13b0715e27220c2fab0fafb8a273a40e112bee6273b7070a3c7cc83a4"
+    }
+  },
+  "downloaded_at_utc": "2026-10-04T08:50:07.788984+00:00"
+}

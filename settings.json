@@ -1,0 +1,30 @@
+{
+  "strategy": "band_reversion",
+  "status": "research_only_not_deployed",
+  "target_r": 1.7,
+  "minimum_room_r": 2,
+  "session": "NY",
+  "timezone": "America/New_York",
+  "entry_start": "10:00",
+  "entry_end_exclusive": "13:30",
+  "force_flat": "13:30",
+  "london_enabled": false,
+  "risk_fraction": 0.01,
+  "initial_usd": 100000,
+  "commission_roundtrip_per_lot": 6,
+  "selected_by": "Explicit user selection: NY 10:00–13:30 America/New_York, TP 1.7R",
+  "challenger": {
+    "target_r": 1.7,
+    "entry_start": "10:00",
+    "entry_end": "13:30",
+    "status": "historical_candidate_now_selected_by_user"
+  },
+  "independent_validation": false,
+  "discord_enabled": false,
+  "broker_execution_enabled": false,
+  "project_name": "NY Trading",
+  "project_id": "ny-trading",
+  "scope": "Standalone NY-only research; original Gold Lab untouched",
+  "original_research_folder": "../ema-pullback-lab",
+  "note": "Default NY-only research configuration chosen by the user. Historical profitability is not independent validation. Entries stop at 13:30 and positions are closed at 13:30 New York local time."
+}

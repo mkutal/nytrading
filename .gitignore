@@ -1,0 +1,24 @@
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Provider OHLC stays local; manifests document provenance
+data/*.json
+!data/*manifest.json
+
+# Generated simulation output and archives
+results/
+discovery/
+*.zip
+*.log
+.DS_Store
