@@ -52,12 +52,14 @@ class ScannerTests(unittest.TestCase):
 
     def test_notification_latency_cannot_turn_into_a_stale_entry(self):
         discord = unittest.mock.Mock()
+        discord.send.return_value = "start-receipt"
         with self.prototypes() as mocked:
             result = cycle(self.when, self.bars, self.runtime, self.state, discord,
                 refresh_now=lambda: self.when + timedelta(seconds=91))
         self.assertIsNone(result)
         mocked.assert_not_called()
-        discord.send.assert_not_called()
+        discord.send.assert_called_once()
+        self.assertIn("Session started", discord.send.call_args.args[0])
         self.assertIsNone(self.state.data["position"])
 
     def test_unclosed_candles_are_removed(self):
@@ -83,19 +85,23 @@ class ScannerTests(unittest.TestCase):
             content=cycle(self.when,self.bars,self.runtime,self.state,discord)
             self.assertIn("Take profit · 100% · 1.7R",content)
             cycle(self.when+timedelta(seconds=20),self.bars,self.runtime,self.state,discord)
-        discord.send.assert_called_once()
+        self.assertEqual(discord.send.call_count, 2)
+        self.assertIn("Session started", discord.send.call_args_list[0].args[0])
+        self.assertEqual(discord.send.call_args_list[1].args[0], content)
         self.state.release()
         self.state=State(Path(self.tmp.name),100000)
         with self.prototypes():cycle(self.when+timedelta(seconds=30),self.bars,self.runtime,self.state,discord)
-        discord.send.assert_called_once()
+        self.assertEqual(discord.send.call_count, 2)
 
     def test_ambiguous_delivery_is_not_blindly_retried(self):
         discord=unittest.mock.Mock()
-        discord.send.side_effect=DeliveryError("Discord delivery unconfirmed")
+        discord.send.side_effect=["start-receipt", DeliveryError("Discord delivery unconfirmed")]
         with self.prototypes():
             cycle(self.when,self.bars,self.runtime,self.state,discord)
             cycle(self.when+timedelta(seconds=20),self.bars,self.runtime,self.state,discord)
-        discord.send.assert_called_once()
+        self.assertEqual(discord.send.call_count, 2)
+        self.assertIn("Session started", discord.send.call_args_list[0].args[0])
+        self.assertIn("BUY · XAUUSD", discord.send.call_args_list[1].args[0])
         self.assertEqual(next(iter(self.state.data["seen"].values()))["status"],"delivery_unconfirmed")
 
     def test_dry_run_does_not_call_discord(self):
@@ -219,7 +225,7 @@ class HistoricalPaperReplay(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state=State(Path(directory),runtime.costs.initial,True)
             try:
-                with patch("scanner.candidates",return_value={"band_reversion":sigs}),patch("scanner.LOG"):
+                with patch("scanner.candidates",return_value={"band_reversion":sigs}),patch("scanner.LOG"),patch("notifications.LOG"):
                     for i,b in enumerate(bars["5min"]):
                         if not start<=b.time<end:continue
                         if not state.data["position"] and (b.time not in sigs or not active(b.time,runtime.window)):continue

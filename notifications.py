@@ -68,8 +68,17 @@ def session_message(deadline):
         "_Paper alerts · broker positions require manual closure_")
 
 
+def session_start_message(start, cutoff, deadline):
+    return (f"**🟢 Session started · New York · {start.astimezone(PRAGUE):%H:%M} Prague**\n"
+        f"Entry window {start.astimezone(PRAGUE):%H:%M}–{cutoff.astimezone(PRAGUE):%H:%M} · Prague time\n"
+        "Entries require a BUY/SELL signal.\n"
+        f"Close at session end {deadline.astimezone(PRAGUE):%H:%M} · Prague time\n"
+        f"Date {start.astimezone(PRAGUE):%Y-%m-%d} · Europe/Prague\n"
+        "_Paper alerts · session reminder_")
+
+
 def on_clock(now, window, state):
-    """Session-end reminders do not depend on a successful market-data request."""
+    """Session reminders do not depend on a successful market-data request."""
     local = now.astimezone(NEW_YORK)
     if local.weekday() >= 5:
         return
@@ -85,8 +94,12 @@ def on_clock(now, window, state):
     session = state.data["sessions"].get(key)
     if not session:
         return  # No historical session spam when starting outside trading hours.
+    start = datetime.fromisoformat(session["start"])
     deadline = datetime.fromisoformat(session["deadline"])
     cutoff = datetime.fromisoformat(session["cutoff"])
+    if start <= now < cutoff:
+        state.queue_notification(key + ":start", "session", start,
+            session_start_message(start, cutoff, deadline), expires_at=cutoff)
     if cutoff < deadline and now >= cutoff:
         state.queue_notification(key + ":cutoff", "session", cutoff,
             f"**🔒 No more entries · New York · {cutoff.astimezone(PRAGUE):%H:%M} Prague**\n"
@@ -106,7 +119,9 @@ def flush(state, now, discord=None, dry_run=False):
         if record["status"] != "pending":
             continue
         scheduled = datetime.fromisoformat(record["time"])
-        if record["kind"] == "session" and scheduled.astimezone(NEW_YORK).date() != now.astimezone(NEW_YORK).date():
+        expires_at = record.get("expires_at")
+        if ((expires_at and now >= datetime.fromisoformat(expires_at))
+                or (record["kind"] == "session" and scheduled.astimezone(NEW_YORK).date() != now.astimezone(NEW_YORK).date())):
             state.notification_status(key, "expired")
             continue
         content = record["content"]

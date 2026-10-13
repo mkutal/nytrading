@@ -2,6 +2,15 @@
 
 Pouze ilustrační hodnoty pro ověření formátu, nikoli skutečný obchod ani nový signál. Všechny časy jsou Europe/Prague.
 
+**🟢 Session started · New York · 16:00 Prague**
+Entry window 16:00–19:30 · Prague time
+Entries require a BUY/SELL signal.
+Close at session end 19:30 · Prague time
+Date 2026-10-12 · Europe/Prague
+_Paper alerts · session reminder_
+
+---
+
 **🟢 BUY · XAUUSD**
 New York · 16:00 Prague
 

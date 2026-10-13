@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from engine import Bar, Signal, UTC, plan_entry
+from engine import Bar, Signal, UTC, Window, plan_entry
 from live_clients import DeliveryError, FeedError
 from live_state import State
 from notifications import flush, message, on_clock, result_message
@@ -67,10 +67,15 @@ class NotificationTests(unittest.TestCase):
             self.assertNotIn("BULLISH", content)
             self.assertLess(len(content), 2000)
 
-    def test_end_notice_with_no_trades_once_across_restart(self):
+    def test_start_and_end_notices_with_no_trades_once_across_restart(self):
         on_clock(self.when, self.runtime.window, self.state)
         flush(self.state, self.when, self.discord)
-        self.discord.send.assert_not_called()
+        self.discord.send.assert_called_once()
+        self.assertIn("Session started", self.discord.send.call_args.args[0])
+        self.reopen()
+        on_clock(self.when + timedelta(seconds=20), self.runtime.window, self.state)
+        flush(self.state, self.when + timedelta(seconds=20), self.discord)
+        self.discord.send.assert_called_once()
         self.reopen()
         on_clock(self.deadline, self.runtime.window, self.state)
         flush(self.state, self.deadline, self.discord)
@@ -79,7 +84,69 @@ class NotificationTests(unittest.TestCase):
         self.reopen()
         on_clock(self.deadline + timedelta(seconds=20), self.runtime.window, self.state)
         flush(self.state, self.deadline + timedelta(seconds=20), self.discord)
+        self.assertEqual(self.discord.send.call_count, 2)
+
+    def test_start_notice_is_prague_only_and_not_queued_before_open(self):
+        on_clock(self.when - timedelta(seconds=1), self.runtime.window, self.state)
+        flush(self.state, self.when - timedelta(seconds=1), self.discord)
+        self.discord.send.assert_not_called()
+        on_clock(self.when, self.runtime.window, self.state)
+        on_clock(self.when, self.runtime.window, self.state)
+        flush(self.state, self.when, self.discord)
         self.discord.send.assert_called_once()
+        content = self.discord.send.call_args.args[0]
+        self.assertIn("Session started · New York · 16:00 Prague", content)
+        self.assertIn("Entry window 16:00–19:30 · Prague time", content)
+        self.assertIn("Close at session end 19:30 · Prague time", content)
+        self.assertIn("Entries require a BUY/SELL signal", content)
+        self.assertIn("Date 2026-07-06 · Europe/Prague", content)
+        for hidden_time in ("UTC", "10:00", "13:30"):
+            self.assertNotIn(hidden_time, content)
+        self.assertLess(len(content), 2000)
+
+    def test_first_startup_during_session_sends_delayed_start_once(self):
+        when = self.when + timedelta(minutes=35)
+        on_clock(when, self.runtime.window, self.state)
+        self.reopen()  # A queued but unsent start survives a restart.
+        on_clock(when, self.runtime.window, self.state)
+        flush(self.state, when, self.discord)
+        self.discord.send.assert_called_once()
+        content = self.discord.send.call_args.args[0]
+        self.assertIn("Delayed paper notice", content)
+        self.assertIn("Session started · New York · 16:00 Prague", content)
+        self.assertEqual(self.state.data["notifications"]["NY:2026-07-06:start"]["status"], "sent")
+
+    def test_start_notice_expires_at_entry_cutoff_without_late_start_spam(self):
+        window = Window("ny", "America/New_York", 10, 0, 0, 60, 210)
+        cutoff = window.times(self.when)[1]
+        on_clock(self.when, window, self.state)
+        self.reopen()
+        on_clock(cutoff, window, self.state)
+        flush(self.state, cutoff, self.discord)
+        self.discord.send.assert_called_once()
+        self.assertIn("No more entries", self.discord.send.call_args.args[0])
+        self.assertNotIn("Session started", self.discord.send.call_args.args[0])
+        self.assertEqual(self.state.data["notifications"]["NY:2026-07-06:start"]["status"], "expired")
+
+    def test_start_notice_follows_prague_dst_conversion(self):
+        for day, expected in ((12, "16:00–19:30"), (26, "15:00–18:30")):
+            when = datetime(2026, 10, day, 14, tzinfo=UTC)
+            start = self.runtime.window.times(when)[0]
+            on_clock(start, self.runtime.window, self.state)
+            flush(self.state, start, self.discord)
+            self.assertIn("Entry window " + expected, self.discord.send.call_args.args[0])
+
+    def test_ambiguous_start_delivery_is_not_retried_after_restart(self):
+        on_clock(self.when, self.runtime.window, self.state)
+        self.discord.send.side_effect = DeliveryError("Discord delivery unconfirmed")
+        with self.assertLogs("nytrading", level="ERROR"):
+            flush(self.state, self.when, self.discord)
+        self.reopen()
+        on_clock(self.when + timedelta(seconds=20), self.runtime.window, self.state)
+        flush(self.state, self.when + timedelta(seconds=20), self.discord)
+        self.discord.send.assert_called_once()
+        self.assertEqual(self.state.data["notifications"]["NY:2026-07-06:start"]["status"],
+                         "delivery_unconfirmed")
 
     def test_no_weekend_or_startup_historical_session_spam(self):
         for when in (self.when - timedelta(days=2), self.deadline + timedelta(minutes=10)):
@@ -160,7 +227,7 @@ class NotificationTests(unittest.TestCase):
         self.reopen()
         flush(self.state, self.deadline, self.discord)
         self.discord.send.assert_called_once()
-        self.assertEqual(next(iter(self.state.data["notifications"].values()))["status"],
+        self.assertEqual(self.state.data["notifications"]["NY:2026-07-06:end"]["status"],
                          "delivery_unconfirmed")
 
     def test_dry_run_notices_never_send_and_are_separate(self):
@@ -168,14 +235,15 @@ class NotificationTests(unittest.TestCase):
         on_clock(self.deadline, self.runtime.window, self.state)
         flush(self.state, self.deadline, self.discord, dry_run=True)
         self.discord.send.assert_not_called()
-        self.assertEqual(next(iter(self.state.data["notifications"].values()))["status"], "dry_run")
+        self.assertEqual(self.state.data["notifications"]["NY:2026-07-06:end"]["status"], "dry_run")
 
     def test_pending_old_session_is_retired_instead_of_sending_close_instruction(self):
         on_clock(self.when, self.runtime.window, self.state)
         on_clock(self.deadline, self.runtime.window, self.state)
         flush(self.state, self.deadline + timedelta(days=1), self.discord)
         self.discord.send.assert_not_called()
-        self.assertEqual(next(iter(self.state.data["notifications"].values()))["status"], "expired")
+        self.assertTrue(all(record["status"] == "expired"
+                            for record in self.state.data["notifications"].values()))
 
     def test_state_upgrade_preserves_equity_open_position_and_seen_signals(self):
         self.open_position()
@@ -207,6 +275,27 @@ class NotificationTests(unittest.TestCase):
                 client.return_value.bars.assert_not_called()
                 self.discord.send.assert_called_once()
                 self.assertIn("Ending the session", self.discord.send.call_args.args[0])
+        finally:
+            self.state = State(Path(self.tmp.name), 100000)
+
+    def test_worker_sends_session_start_despite_market_data_outage(self):
+        import os
+        self.state.release()
+        env = {"TWELVE_DATA_API_KEY": "test-placeholder", "DATA_DIR": self.tmp.name,
+               "DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/123/test-placeholder"}
+        try:
+            with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["scanner.py", "--once"]), \
+                 patch("scanner.datetime") as clock, patch("scanner.signal.signal"), \
+                 patch("scanner.TwelveData") as client, patch("scanner.Discord", return_value=self.discord), \
+                 patch("scanner.threading.Event") as stop, self.assertLogs("nytrading", level="INFO"):
+                clock.now.return_value = self.when
+                stop.return_value.is_set.return_value = False
+                stop.return_value.wait.return_value = False
+                client.return_value.bars.side_effect = FeedError("Fixture outage")
+                self.assertEqual(main(), 0)
+                self.discord.send.assert_called_once()
+                self.assertIn("Session started", self.discord.send.call_args.args[0])
+                self.assertEqual(client.return_value.bars.call_count, 1)
         finally:
             self.state = State(Path(self.tmp.name), 100000)
 

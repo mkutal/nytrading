@@ -153,10 +153,12 @@ class State:
                 cutoff=cutoff.isoformat(), deadline=deadline.isoformat())
             self.save()
 
-    def queue_notification(self, key, kind, when, content):
+    def queue_notification(self, key, kind, when, content, expires_at=None):
         if key not in self.data["notifications"]:
             self.data["notifications"][key] = dict(kind=kind, time=when.isoformat(),
                 content=content, status="pending")
+            if expires_at is not None:
+                self.data["notifications"][key]["expires_at"] = expires_at.isoformat()
             self.save()
 
     def notification_status(self, key, status, message_id=None):
